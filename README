@@ -1,0 +1,3 @@
+This is a simple KD-Tree library, thoroughly copied from
+<https://github.com/AReallyGoodName/OfflineReverseGeocode/> (MIT-licensed). It
+is totally untested, use it at your peril.
