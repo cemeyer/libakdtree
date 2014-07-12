@@ -1,0 +1,4 @@
+libakdtree.so*
+*.o
+.*.swp
+TAGS
