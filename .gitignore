@@ -2,3 +2,5 @@ libakdtree.so*
 *.o
 .*.swp
 TAGS
+tests/check_akdtree
+tests/libakdtree.so
