@@ -13,6 +13,7 @@
 
 #include <errno.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,7 +71,7 @@ assert_fail(const char *an, const char *fn, const char *file, unsigned line,
 struct akd_node {
 	struct akd_node	*an_left,
 			*an_right;
-	char		 an_userdata[];
+	akd_userdata_t	 an_userdata[];
 };
 
 struct akd_tree {
@@ -82,6 +83,27 @@ struct akd_cmp_thunk {
 	const struct akd_param_block	*params;
 	unsigned			 axis;
 };
+
+static bool
+node_eq_key(const struct akd_param_block *pb, const struct akd_node *n,
+    const akd_userdata_t *key)
+{
+	unsigned i;
+	bool eq;
+
+	if (memcmp(key, n->an_userdata, pb->ap_size) == 0)
+		return (true);
+
+	eq = true;
+	for (i = 0; i < pb->ap_k; i++) {
+		if (pb->ap_cmp(i, key, n->an_userdata) == 0)
+			continue;
+		eq = false;
+		break;
+	}
+
+	return (eq);
+}
 
 /* Free a tree of nodes */
 void
@@ -116,14 +138,14 @@ pick_cmp(void *thunkv, const void *a, const void *b)
 #endif
 
 static int __must_check
-build_tree(void *items, size_t nmemb, unsigned depth,
+build_tree(akd_userdata_t *items, size_t nmemb, unsigned depth,
     const struct akd_param_block *pb, struct akd_node **node_out)
 {
 	struct akd_cmp_thunk sort_thunk;
 	struct akd_node *node = NULL;
 	size_t middle;
 	int error = 0;
-	char *midp;
+	akd_userdata_t *midp;
 
 	*node_out = NULL;
 	if (nmemb == 0)
@@ -150,14 +172,14 @@ build_tree(void *items, size_t nmemb, unsigned depth,
 	if (error)
 		goto out;
 
-	midp = (char *)items + (middle * pb->ap_size);
-
+	midp = (uint8_t *)items + (middle * pb->ap_size);
 	error = build_tree(midp + pb->ap_size, nmemb - (middle + 1), depth + 1,
 	    pb, &node->an_right);
 	if (error)
 		goto out;
 
-	memcpy(&node->an_userdata, midp, pb->ap_size);
+	memcpy(node->an_userdata, midp, pb->ap_size);
+	*node_out = node;
 
 out:
 	if (error && node)
@@ -167,51 +189,99 @@ out:
 
 /* Search */
 static struct akd_node *
-find_nearest_node(const struct akd_param_block *pb, struct akd_node *root,
-    const void *key, unsigned depth)
+find_nearest_node_ex(const struct akd_param_block *pb, struct akd_node *root,
+    const akd_userdata_t *key, unsigned depth, unsigned flags)
 {
 	struct akd_node *best, *next, *other, *maybe;
+	bool badrooteq;
 	int cmp;
 
-	cmp = pb->ap_cmp(depth % pb->ap_k, key, root);
+	badrooteq = false;
+
+	cmp = pb->ap_cmp(depth % pb->ap_k, key, root->an_userdata);
 	if (cmp < 0) {
 		next = root->an_left;
 		other = root->an_right;
+	} else if (cmp > 0) {
+		next = root->an_right;
+		other = root->an_left;
 	} else {
+		/* Root == key and we asked for something NEQ key */
+		if ((flags & AKD_NOT_EQUAL) != 0)
+			badrooteq = true;
+
 		next = root->an_right;
 		other = root->an_left;
 	}
 
 	best = root;
 	if (next) {
-		maybe = find_nearest_node(pb, next, key, depth + 1);
-		if (pb->_u._double.ap_squared_dist(maybe, key) <=
-		    pb->_u._double.ap_squared_dist(root, key))
+		maybe = find_nearest_node_ex(pb, next, key, depth + 1, flags);
+		if (maybe && (badrooteq ||
+		    pb->_u._double.ap_squared_dist(maybe->an_userdata, key) <=
+		    pb->_u._double.ap_squared_dist(root->an_userdata, key)))
 			best = maybe;
 	}
 
 	if (other == NULL)
 		goto out;
 
-	if (pb->_u._double.ap_axis_squared_dist(root, key, depth % pb->ap_k) >=
-	    pb->_u._double.ap_squared_dist(best, key))
+	if ((!badrooteq || best != root) &&
+	    pb->_u._double.ap_axis_squared_dist(root->an_userdata, key, depth % pb->ap_k) >=
+	    pb->_u._double.ap_squared_dist(best->an_userdata, key))
 		goto out;
 
-	maybe = find_nearest_node(pb, other, key, depth + 1);
-	if (pb->_u._double.ap_squared_dist(maybe, key) <
-	    pb->_u._double.ap_squared_dist(best, key))
+	maybe = find_nearest_node_ex(pb, other, key, depth + 1, flags);
+	if (maybe == NULL)
+		goto out;
+
+	if (pb->_u._double.ap_squared_dist(maybe->an_userdata, key) <
+	    pb->_u._double.ap_squared_dist(best->an_userdata, key) ||
+	    (best == root && badrooteq))
 		best = maybe;
 
 out:
-	return best;
+	if (best == root && badrooteq)
+		best = NULL;
+	ASSERT((flags & AKD_NOT_EQUAL) == 0 || best == NULL ||
+	    !node_eq_key(pb, best, key));
+	return (best);
+}
+
+static struct akd_node *
+find_nearest_node(const struct akd_param_block *pb, struct akd_node *root,
+    const akd_userdata_t *key, unsigned depth)
+{
+
+	return find_nearest_node_ex(pb, root, key, depth, 0);
+}
+
+static int
+tree_walk(struct akd_node *root, akd_node_cb cb, unsigned depth, unsigned flags)
+{
+	int error;
+
+	if (root->an_left) {
+		error = tree_walk(root->an_left, cb, depth + 1, flags);
+		if (error)
+			return (error);
+	}
+
+	error = cb(depth, root->an_userdata);
+	if (error)
+		return (error);
+
+	if (root->an_right)
+		error = tree_walk(root->an_right, cb, depth + 1, flags);
+	return (error);
 }
 
 /*
  * API routines
  */
 EXPORT_SYM int
-akd_create(void *items, size_t nmemb, const struct akd_param_block *pb,
-    struct akd_tree **tree_out)
+akd_create(akd_userdata_t *items, size_t nmemb,
+    const struct akd_param_block *pb, struct akd_tree **tree_out)
 {
 	const unsigned valid_flags = (AKD_SINGLE_PREC | AKD_INTEGRAL);
 
@@ -271,8 +341,8 @@ akd_get_param_block(const struct akd_tree *tree)
 	return &tree->at_params;
 }
 
-EXPORT_SYM const void *
-akd_find_nearest(const struct akd_tree *tree, const void *key)
+EXPORT_SYM const akd_userdata_t *
+akd_find_nearest(const struct akd_tree *tree, const akd_userdata_t *key)
 {
 	struct akd_node *n;
 
@@ -283,5 +353,37 @@ akd_find_nearest(const struct akd_tree *tree, const void *key)
 	if (n == NULL)
 		return NULL;
 
-	return &n->an_userdata;
+	return (n->an_userdata);
+}
+
+EXPORT_SYM const akd_userdata_t *
+akd_find_nearest_ex(const struct akd_tree *tree, const akd_userdata_t *key, unsigned flags)
+{
+	struct akd_node *n;
+
+	if (flags & ~AKD_NOT_EQUAL)
+		return NULL;
+
+	if (tree->at_root == NULL)
+		return NULL;
+
+	n = find_nearest_node_ex(&tree->at_params, tree->at_root, key, 0,
+	    flags);
+	if (n == NULL)
+		return NULL;
+
+	return (n->an_userdata);
+}
+
+EXPORT_SYM int
+akd_tree_walk(const struct akd_tree *tree, akd_node_cb cb, unsigned flags)
+{
+
+	if (tree->at_root == NULL)
+		return (EINVAL);
+
+	if (flags != 0)
+		return (EINVAL);
+
+	return (tree_walk(tree->at_root, cb, 0, flags));
 }

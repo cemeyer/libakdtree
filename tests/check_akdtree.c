@@ -12,22 +12,23 @@
 
 #include <akdtree.h>
 
-#define NELEM(arr) (sizeof(arr) / sizeof(arr[0]))
+#define	NELEM(arr)	(sizeof(arr) / sizeof(arr[0]))
+#define	CV(a)		((const void *)a)
 
 static struct akd_tree *g_tree;
-static int int2_cmp(unsigned dim, const void *, const void *);
-static double int2_sdist(const void *, const void *);
-static double int2_asdist(const void *, const void *, unsigned);
+static int int2_cmp(unsigned dim, const akd_userdata_t *, const akd_userdata_t *);
+static double int2_sdist(const akd_userdata_t *, const akd_userdata_t *);
+static double int2_asdist(const akd_userdata_t *, const akd_userdata_t *, unsigned);
 
 struct akd_param_block g_int2_params = {
 	.ap_k = 2,
-	.ap_size = sizeof(int),
-	.ap_cmp = NULL,//int2_cmp,
+	.ap_size = sizeof(int) * 2,
+	.ap_cmp = int2_cmp,
 	.ap_flags = 0,
 	._u = {
 	._double = {
-		.ap_squared_dist = NULL,//int2_sdist,
-		.ap_axis_squared_dist = NULL,//int2_asdist,
+		.ap_squared_dist = int2_sdist,
+		.ap_axis_squared_dist = int2_asdist,
 	}},
 };
 
@@ -58,8 +59,8 @@ main(int argc, char **argv)
 	}
 
 	if (success)
-		return EXIT_SUCCESS;
-	return EXIT_FAILURE;
+		return (EXIT_SUCCESS);
+	return (EXIT_FAILURE);
 }
 
 static void
@@ -107,6 +108,108 @@ START_TEST(test_bogus_inputs)
 }
 END_TEST
 
+static int
+int2_cmp(unsigned dim, const akd_userdata_t *a, const akd_userdata_t *b)
+{
+	const int *ad = CV(a), *bd = CV(b);
+
+	fail_if(dim != 0 && dim != 1);
+
+	if (dim) {
+		ad++;
+		bd++;
+	}
+
+	if (*ad > *bd)
+		return (1);
+	else if (*ad == *bd)
+		return (0);
+	else
+		return (-1);
+}
+
+static double
+int2_asdist(const akd_userdata_t *a, const akd_userdata_t *b, unsigned dim)
+{
+	const int *ad = CV(a), *bd = CV(b);
+	double d;
+
+	if (dim) {
+		ad++;
+		bd++;
+	}
+
+	d = (*ad - *bd);
+	return (d * d);
+}
+
+static double
+int2_sdist(const akd_userdata_t *a, const akd_userdata_t *b)
+{
+
+	return (int2_asdist(a, b, 0) + int2_asdist(a, b, 1));
+}
+
+#define	PRINT_DEBUG	1
+#ifdef	PRINT_DEBUG
+int
+print_int2_cb(unsigned level, const akd_userdata_t *datum)
+{
+	const int *idat;
+	unsigned i;
+
+	for (i = 0; i < level; i++)
+		putchar('\t');
+
+	idat = CV(datum);
+	printf("%d, %d\n", idat[0], idat[1]);
+	return (0);
+}
+#endif
+
+START_TEST(test_simple)
+{
+	const void *vnn;
+	int input[] = {
+		1, 2,
+		3, 4,
+		5, 5,
+	};
+	int key1[] = { 3, 3 },
+	    key2[] = { 1, 2 },
+	    key3[] = { 3, 4 };
+	const int *found;
+	int error;
+
+	error = akd_create((void*)input, NELEM(input) / 2, &g_int2_params, &g_tree);
+	fail_if(error);
+
+#ifdef	PRINT_DEBUG
+	(void)akd_tree_walk(g_tree, print_int2_cb, 0);
+#endif
+
+	vnn = akd_find_nearest_ex(g_tree, CV(key1), 0);
+	fail_unless(vnn);
+	found = vnn;
+	fail_unless(found[0] == 3 && found[1] == 4);
+
+	vnn = akd_find_nearest_ex(g_tree, CV(key2), 0);
+	fail_unless(vnn);
+	found = vnn;
+	fail_unless(found[0] == 1 && found[1] == 2);
+
+	vnn = akd_find_nearest_ex(g_tree, CV(key2), AKD_NOT_EQUAL);
+	fail_unless(vnn);
+	found = vnn;
+	fail_unless(found[0] == 3 && found[1] == 4);
+
+	vnn = akd_find_nearest_ex(g_tree, CV(key3), AKD_NOT_EQUAL);
+	fail_unless(vnn);
+	found = vnn;
+	fail_unless(found[0] == 5 && found[1] == 5);
+}
+END_TEST
+
 static Suite *
 t_kdtree(void)
 {
@@ -120,7 +223,8 @@ t_kdtree(void)
 
 	tcase_add_test(tc, test_empty);
 	tcase_add_test(tc, test_bogus_inputs);
+	tcase_add_test(tc, test_simple);
 
 	suite_add_tcase(s, tc);
-	return s;
+	return (s);
 }

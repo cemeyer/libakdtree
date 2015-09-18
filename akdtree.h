@@ -7,12 +7,15 @@
  * Glasson.
  */
 
+typedef uint8_t akd_userdata_t;
+
 struct akd_param_block {
 	unsigned	  ap_k;			/* K dimensions */
 	size_t		  ap_size;		/* item size */
 
 	/* Compare 'a' to 'b' in dimension 'dim'. 'dim' in [0, K) */
-	int		(*ap_cmp)(unsigned dim, const void *a, const void *b);
+	int		(*ap_cmp)(unsigned dim, const akd_userdata_t *a,
+				  const akd_userdata_t *b);
 
 	unsigned	  ap_flags;		/* Flags: */
 #define AKD_SINGLE_PREC	0x0001		/* If unset, defaults to double. */
@@ -25,26 +28,32 @@ struct akd_param_block {
 	union {
 	struct {
 		/* Return squared distance between two items. */
-		double	(*ap_squared_dist)(const void *a, const void *b);
+		double	(*ap_squared_dist)(const akd_userdata_t *a,
+					   const akd_userdata_t *b);
 		/* Return squared distance between two items in 'dim' axis */
-		double	(*ap_axis_squared_dist)(const void *a, const void *b,
+		double	(*ap_axis_squared_dist)(const akd_userdata_t *a,
+						const akd_userdata_t *b,
 						unsigned dim);
 	} _double;
 	struct {
-		float	(*ap_squared_dist)(const void *a, const void *b);
-		float	(*ap_axis_squared_dist)(const void *a, const void *b,
+		float	(*ap_squared_dist)(const akd_userdata_t *a,
+					   const akd_userdata_t *b);
+		float	(*ap_axis_squared_dist)(const akd_userdata_t *a,
+						const akd_userdata_t *b,
 						unsigned dim);
 	} _single;
 	struct {
-		uint64_t	(*ap_squared_dist)(const void *a, const void *b);
-		uint64_t	(*ap_axis_squared_dist)(const void *a,
-							const void *b,
+		uint64_t	(*ap_squared_dist)(const akd_userdata_t *a,
+						   const akd_userdata_t *b);
+		uint64_t	(*ap_axis_squared_dist)(const akd_userdata_t *a,
+							const akd_userdata_t *b,
 							unsigned dim);
 	} _uint64;
 	struct {
-		uint32_t	(*ap_squared_dist)(const void *a, const void *b);
-		uint32_t	(*ap_axis_squared_dist)(const void *a,
-							const void *b,
+		uint32_t	(*ap_squared_dist)(const akd_userdata_t *a,
+						   const akd_userdata_t *b);
+		uint32_t	(*ap_axis_squared_dist)(const akd_userdata_t *a,
+							const akd_userdata_t *b,
 							unsigned dim);
 	} _uint32;
 	} _u;
@@ -74,8 +83,8 @@ struct akd_tree;
  *   * EINVAL: Bad inputs, K of zero, or invalid flags set in ap_flags.
  *   * ENOMEM: Malloc failed.
  */
-int akd_create(void *items, size_t nmemb, const struct akd_param_block *pb,
-    struct akd_tree **tree_out);
+int akd_create(akd_userdata_t *items, size_t nmemb,
+    const struct akd_param_block *pb, struct akd_tree **tree_out);
 
 void akd_free(struct akd_tree *tree);
 
@@ -91,4 +100,33 @@ const struct akd_param_block *akd_get_param_block(const struct akd_tree *tree);
  *
  * Returns NULL if the tree is empty.
  */
-const void *akd_find_nearest(const struct akd_tree *tree, const void *key);
+const akd_userdata_t *akd_find_nearest(const struct akd_tree *tree,
+    const akd_userdata_t *key);
+
+
+/*
+ * akd_find_nearest_ex - Find the nearest item to the given item, with flags.
+ *
+ * Returns NULL if the tree is empty.
+ *
+ * Returns NULL if AKD_NOT_EQUAL is passed and the tree only contains one node
+ * equal to key.
+ */
+#define	AKD_NOT_EQUAL	0x1u
+const akd_userdata_t *akd_find_nearest_ex(const struct akd_tree *tree,
+    const akd_userdata_t *key, unsigned flags);
+
+
+/*
+ * Tree traversal - Walk the KD tree in infix order, invoking cb on each piece
+ * of data.
+ *
+ * If a callback returns a non-zero value, halt the traversal and return the
+ * error from akd_tree_walk.
+ *
+ * Returns EINVAL if given an invalid tree object.
+ * Returns other errors if user-supplied callback does.
+ * Otherwise, returns zero.
+ */
+typedef int (*akd_node_cb)(unsigned level, const akd_userdata_t *data);
+int akd_tree_walk(const struct akd_tree *, akd_node_cb, unsigned flags);
