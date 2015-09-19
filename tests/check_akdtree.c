@@ -17,19 +17,16 @@
 
 static struct akd_tree *g_tree;
 static int int2_cmp(unsigned dim, const akd_userdata_t *, const akd_userdata_t *);
-static double int2_sdist(const akd_userdata_t *, const akd_userdata_t *);
-static double int2_asdist(const akd_userdata_t *, const akd_userdata_t *, unsigned);
+static int int2_dist_cmp(const akd_userdata_t *, const akd_userdata_t *, const akd_userdata_t *);
+static int int2_dist_acmp(const akd_userdata_t *, const akd_userdata_t *, unsigned, const akd_userdata_t *);
 
 struct akd_param_block g_int2_params = {
 	.ap_k = 2,
+	.ap_flags = 0,
 	.ap_size = sizeof(int) * 2,
 	.ap_cmp = int2_cmp,
-	.ap_flags = 0,
-	._u = {
-	._double = {
-		.ap_squared_dist = int2_sdist,
-		.ap_axis_squared_dist = int2_asdist,
-	}},
+	.ap_dist_cmp = int2_dist_cmp,
+	.ap_dist_acmp = int2_dist_acmp,
 };
 
 static Suite *t_kdtree(void);
@@ -128,7 +125,7 @@ int2_cmp(unsigned dim, const akd_userdata_t *a, const akd_userdata_t *b)
 		return (-1);
 }
 
-static double
+static uint64_t
 int2_asdist(const akd_userdata_t *a, const akd_userdata_t *b, unsigned dim)
 {
 	const int *ad = CV(a), *bd = CV(b);
@@ -143,11 +140,45 @@ int2_asdist(const akd_userdata_t *a, const akd_userdata_t *b, unsigned dim)
 	return (d * d);
 }
 
-static double
+static uint64_t
 int2_sdist(const akd_userdata_t *a, const akd_userdata_t *b)
 {
 
 	return (int2_asdist(a, b, 0) + int2_asdist(a, b, 1));
+}
+
+static int
+int2_dist_cmp(const akd_userdata_t *k, const akd_userdata_t *a,
+    const akd_userdata_t *b)
+{
+	uint64_t da, db;
+
+	da = int2_sdist(k, a);
+	db = int2_sdist(k, b);
+
+	if (da > db)
+		return (1);
+	else if (da == db)
+		return (0);
+	else
+		return (-1);
+}
+
+static int
+int2_dist_acmp(const akd_userdata_t *k, const akd_userdata_t *a, unsigned d,
+    const akd_userdata_t *b)
+{
+	uint64_t da, db;
+
+	da = int2_asdist(k, a, d);
+	db = int2_sdist(k, b);
+
+	if (da > db)
+		return (1);
+	else if (da == db)
+		return (0);
+	else
+		return (-1);
 }
 
 #define	PRINT_DEBUG	1

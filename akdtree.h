@@ -7,56 +7,55 @@
  * Glasson.
  */
 
+/*
+ * Opaque type for userdata (produces warnings where casts to/from void would
+ * not
+ */
 typedef uint8_t akd_userdata_t;
 
 struct akd_param_block {
 	unsigned	  ap_k;			/* K dimensions */
-	size_t		  ap_size;		/* item size */
+	unsigned	  ap_flags;		/* Flags */
+
+	size_t		  ap_size;		/* Item size (total) */
 
 	/* Compare 'a' to 'b' in dimension 'dim'. 'dim' in [0, K) */
 	int		(*ap_cmp)(unsigned dim, const akd_userdata_t *a,
 				  const akd_userdata_t *b);
 
-	unsigned	  ap_flags;		/* Flags: */
-#define AKD_SINGLE_PREC	0x0001		/* If unset, defaults to double. */
-#define AKD_INTEGRAL	0x0002		/* If unset, defaults to floats. */
+	/*
+	 * Compare 'n1' to 'n2' (by squared distance from node to 'key').
+	 * E.g.
+	 *   dist1 = squared_distance(n1, key);
+	 *   dist2 = squared_distance(n2, key);
+	 *   if (dist1 > dist2)
+	 *     return (1);
+	 *   else if (dist1 == dist2)
+	 *     return (0);
+	 *   else
+	 *     return (-1);
+	 */
+	int		(*ap_dist_cmp)(const akd_userdata_t *key,
+				       const akd_userdata_t *n1,
+				       const akd_userdata_t *n2);
 
 	/*
-	 * Pick one set of functions to implement and set ap_flags
-	 * appropriately:
+	 * Compare 'n1' to 'n2' asymmetrically (by axis squared distance from
+	 * n1 to key, and total squared distance from n2 to key).  E.g.
+	 *
+	 *   dist1 = axis_squared_distance(n1, key, dim);
+	 *   dist2 = squared_distance(n2, key);
+	 *   if (dist1 > dist2)
+	 *     return (1);
+	 *   else if (dist1 == dist2)
+	 *     return (0);
+	 *   else
+	 *     return (-1);
 	 */
-	union {
-	struct {
-		/* Return squared distance between two items. */
-		double	(*ap_squared_dist)(const akd_userdata_t *a,
-					   const akd_userdata_t *b);
-		/* Return squared distance between two items in 'dim' axis */
-		double	(*ap_axis_squared_dist)(const akd_userdata_t *a,
-						const akd_userdata_t *b,
-						unsigned dim);
-	} _double;
-	struct {
-		float	(*ap_squared_dist)(const akd_userdata_t *a,
-					   const akd_userdata_t *b);
-		float	(*ap_axis_squared_dist)(const akd_userdata_t *a,
-						const akd_userdata_t *b,
-						unsigned dim);
-	} _single;
-	struct {
-		uint64_t	(*ap_squared_dist)(const akd_userdata_t *a,
-						   const akd_userdata_t *b);
-		uint64_t	(*ap_axis_squared_dist)(const akd_userdata_t *a,
-							const akd_userdata_t *b,
-							unsigned dim);
-	} _uint64;
-	struct {
-		uint32_t	(*ap_squared_dist)(const akd_userdata_t *a,
-						   const akd_userdata_t *b);
-		uint32_t	(*ap_axis_squared_dist)(const akd_userdata_t *a,
-							const akd_userdata_t *b,
-							unsigned dim);
-	} _uint32;
-	} _u;
+	int		(*ap_dist_acmp)(const akd_userdata_t *key,
+					const akd_userdata_t *n1,
+					unsigned dim,
+					const akd_userdata_t *n2);
 };
 
 struct akd_tree;

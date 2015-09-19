@@ -10,12 +10,13 @@ HARDFLAGS = -Wp,-D_FORTIFY_SOURCE=2 -fstack-protector-strong --param=ssp-buffer-
 DBGFLAGS = -g -grecord-gcc-switches
 FLAGS = $(DBGFLAGS) $(WARNFLAGS) $(OPTFLAGS) $(HARDFLAGS) $(LTOFLAGS) -fvisibility=hidden
 
+HDRS = akdtree.h
 SRCS = akdtree.c
 OBJS = $(SRCS:.c=.o)
 
-lib$(LIB_NAME).so.$(LIB_VERSION): $(OBJS)
+lib$(LIB_NAME).so.$(LIB_VERSION): $(OBJS) $(HDRS)
 	$(CC) -shared -Wl,-soname,lib$(LIB_NAME).so.$(LIB_VERSION) \
-		$(FLAGS) -o lib$(LIB_NAME).so.$(LIB_VERSION) $^
+		$(FLAGS) -o lib$(LIB_NAME).so.$(LIB_VERSION) $(OBJS)
 
 %.o: %.c
 	$(CC) -c -fpic -g $(FLAGS) $<

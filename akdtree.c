@@ -219,8 +219,7 @@ find_nearest_node_ex(const struct akd_param_block *pb, struct akd_node *root,
 	if (next) {
 		maybe = find_nearest_node_ex(pb, next, key, depth + 1, flags);
 		if (maybe && (badrooteq ||
-		    pb->_u._double.ap_squared_dist(maybe->an_userdata, key) <=
-		    pb->_u._double.ap_squared_dist(root->an_userdata, key)))
+		    pb->ap_dist_cmp(key, maybe->an_userdata, root->an_userdata) <= 0))
 			best = maybe;
 	}
 
@@ -228,17 +227,15 @@ find_nearest_node_ex(const struct akd_param_block *pb, struct akd_node *root,
 		goto out;
 
 	if ((!badrooteq || best != root) &&
-	    pb->_u._double.ap_axis_squared_dist(root->an_userdata, key, depth % pb->ap_k) >=
-	    pb->_u._double.ap_squared_dist(best->an_userdata, key))
+	    pb->ap_dist_acmp(key, root->an_userdata, depth % pb->ap_k, best->an_userdata) >= 0)
 		goto out;
 
 	maybe = find_nearest_node_ex(pb, other, key, depth + 1, flags);
 	if (maybe == NULL)
 		goto out;
 
-	if (pb->_u._double.ap_squared_dist(maybe->an_userdata, key) <
-	    pb->_u._double.ap_squared_dist(best->an_userdata, key) ||
-	    (best == root && badrooteq))
+	if ((best == root && badrooteq) ||
+	    pb->ap_dist_cmp(key, maybe->an_userdata, best->an_userdata) < 0)
 		best = maybe;
 
 out:
@@ -247,14 +244,6 @@ out:
 	ASSERT((flags & AKD_NOT_EQUAL) == 0 || best == NULL ||
 	    !node_eq_key(pb, best, key));
 	return (best);
-}
-
-static struct akd_node *
-find_nearest_node(const struct akd_param_block *pb, struct akd_node *root,
-    const akd_userdata_t *key, unsigned depth)
-{
-
-	return find_nearest_node_ex(pb, root, key, depth, 0);
 }
 
 static int
@@ -284,7 +273,7 @@ EXPORT_SYM int
 akd_create(akd_userdata_t *items, size_t nmemb,
     const struct akd_param_block *pb, struct akd_tree **tree_out)
 {
-	const unsigned valid_flags = (AKD_SINGLE_PREC | AKD_INTEGRAL);
+	const unsigned valid_flags = 0;
 
 	struct akd_tree *t = NULL;
 	int error = EINVAL;
@@ -301,9 +290,6 @@ akd_create(akd_userdata_t *items, size_t nmemb,
 
 	if (pb->ap_flags & ~valid_flags)
 		goto out;
-
-	if ((pb->ap_flags & valid_flags) != 0)
-		errx(1, "These flags aren't implemented yet.\n");
 
 	*tree_out = NULL;
 
@@ -353,7 +339,7 @@ akd_find_nearest(const struct akd_tree *tree, const akd_userdata_t *key)
 	if (tree->at_root == NULL)
 		return NULL;
 
-	n = find_nearest_node(&tree->at_params, tree->at_root, key, 0);
+	n = find_nearest_node_ex(&tree->at_params, tree->at_root, key, 0, 0);
 	if (n == NULL)
 		return NULL;
 
