@@ -11,6 +11,7 @@
 # define _GNU_SOURCE
 #endif
 
+#include <err.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -300,6 +301,9 @@ akd_create(akd_userdata_t *items, size_t nmemb,
 
 	if (pb->ap_flags & ~valid_flags)
 		goto out;
+
+	if ((pb->ap_flags & valid_flags) != 0)
+		errx(1, "These flags aren't implemented yet.\n");
 
 	*tree_out = NULL;
 
